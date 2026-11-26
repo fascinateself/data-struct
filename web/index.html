@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automata Celular Territorial — Punto Fijo, Arbol N-ario y 60 FPS</title>
+    <style>
+        :root {
+            --bg-main: #0b1120;
+            --bg-panel: #131c31;
+            --bg-input: #1e293b;
+            --border-color: #2e3d59;
+            --text-main: #e2e8f0;
+            --text-muted: #94a3b8;
+            --accent: #3b82f6;
+            --danger: #dc2626;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        header {
+            padding: 0.55rem 1.15rem;
+            background-color: var(--bg-panel);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        header h1 { margin: 0; font-size: 1rem; font-weight: 600; }
+        .header-controls { display: flex; align-items: center; gap: 0.4rem; }
+        .telemetry-strip { font-size: 0.8rem; color: var(--text-muted); display: flex; gap: 1rem; }
+        .telemetry-strip strong { color: var(--text-main); }
+
+        main {
+            display: grid;
+            grid-template-columns: 345px 1fr;
+            flex: 1;
+            min-height: 0;
+        }
+        aside {
+            background-color: var(--bg-panel);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .tabs {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .tab-btn {
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-muted);
+            padding: 0.6rem 0.2rem;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .tab-btn.active {
+            color: var(--text-main);
+            border-bottom-color: var(--accent);
+            background-color: rgba(59, 130, 246, 0.08);
+        }
+        .tab-content {
+            display: none;
+            padding: 0.85rem;
+            overflow-y: auto;
+            flex: 1;
+            flex-direction: column;
+            gap: 0.85rem;
+        }
+        .tab-content.active { display: flex; }
+
+        .group {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.8rem;
+        }
+        .group:last-child { border-bottom: none; }
+        .group-title {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            margin-bottom: 0.45rem;
+            font-weight: 600;
+        }
+        .row { display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.4rem; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.35rem; }
+        .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.3rem; }
+
+        label { display: block; font-size: 0.76rem; color: var(--text-muted); margin-bottom: 0.2rem; }
+        input[type="text"], input[type="number"], select {
+            width: 100%;
+            background-color: var(--bg-input);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 0.35rem 0.48rem;
+            font-size: 0.8rem;
+        }
+        input[type="color"] {
+            width: 36px;
+            height: 28px;
+            border: 1px solid var(--border-color);
+            background: transparent;
+            cursor: pointer;
+            padding: 0;
+        }
+        input[type="range"] { width: 100%; }
+        button {
+            background-color: var(--bg-input);
+            color: var(--text-main);
+            border: 1px solid #3f5170;
+            border-radius: 4px;
+            padding: 0.36rem 0.5rem;
+            font-size: 0.78rem;
+            cursor: pointer;
+        }
+        button:hover { background-color: #293852; }
+        button.primary { background-color: var(--accent); border-color: #2563eb; }
+        button.primary:hover { background-color: #2563eb; }
+        button.danger { background-color: #7f1d1d; border-color: var(--danger); }
+        button.danger:hover { background-color: var(--danger); }
+        button.active-tool { outline: 2px solid var(--accent); background-color: #1d4ed8; }
+
+        .viewport {
+            position: relative;
+            background-color: #060a14;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 0;
+        }
+        .canvas-stage {
+            position: relative;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+        #simCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: crosshair;
+        }
+        .minimap-wrapper {
+            position: absolute;
+            right: 12px;
+            bottom: 12px;
+            background: rgba(15, 23, 42, 0.92);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 4px;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+        }
+        #minimapCanvas { display: block; cursor: pointer; }
+
+        .timeline-dock {
+            background-color: #0f172a;
+            border-top: 1px solid var(--border-color);
+            height: 92px;
+            display: flex;
+            flex-direction: column;
+        }
+        .timeline-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.2rem 0.75rem;
+            font-size: 0.74rem;
+            color: var(--text-muted);
+            background-color: var(--bg-panel);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .timeline-scroll {
+            flex: 1;
+            overflow-x: auto;
+            overflow-y: auto;
+        }
+        #timelineCanvas { display: block; cursor: pointer; }
+
+        .inspector-bar {
+            background-color: var(--bg-panel);
+            border-top: 1px solid var(--border-color);
+            padding: 0.38rem 0.9rem;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            font-size: 0.78rem;
+            color: var(--text-main);
+            margin-top: 0.3rem;
+        }
+        .checkbox-row input { width: auto; margin: 0; }
+        .blueprint-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+        .blueprint-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: var(--bg-input);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 0.35rem 0.5rem;
+            font-size: 0.78rem;
+            cursor: pointer;
+        }
+        .blueprint-item.selected { border-color: var(--accent); background-color: rgba(59, 130, 246, 0.2); }
+        .team-stats-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+        .team-stats-table th, .team-stats-table td {
+            text-align: left;
+            padding: 0.28rem 0.2rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; }
+        #telemetryCanvas {
+            width: 100%;
+            height: 135px;
+            background: #0b1120;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Automata Celular Territorial — Punto Fijo / WASM</h1>
+        <div class="header-controls">
+            <button id="btnPlay" class="primary">Iniciar</button>
+            <button id="btnStep">Paso (+1)</button>
+            <button id="btnUndo" title="Atajo: Ctrl+Z">Deshacer</button>
+            <button id="btnRedo" title="Atajo: Ctrl+Y">Rehacer</button>
+            <button id="btnResetView">Ajustar Vista</button>
+        </div>
+        <div class="telemetry-strip">
+            <span>Tick: <strong id="lblTick">0</strong></span>
+            <span>Naciones: <strong id="lblNations">0</strong></span>
+            <span>Activas: <strong id="lblActive">0</strong></span>
+            <span>Mapa: <strong id="lblDim">0x0</strong></span>
+            <span>Zoom: <strong id="lblZoom">100%</strong></span>
+        </div>
+    </header>
+
+    <main>
+        <aside>
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="tabEditor">Editor</button>
+                <button class="tab-btn" data-tab="tabTeams">Equipos</button>
+                <button class="tab-btn" data-tab="tabBlueprints">Plantillas</button>
+                <button class="tab-btn" data-tab="tabTelemetry">Telemetria</button>
+            </div>
+
+            <!-- PESTANA 1: EDITOR -->
+            <div id="tabEditor" class="tab-content active">
+                <div class="group">
+                    <div class="group-title">Velocidad y Lotes (Batch)</div>
+                    <label>Fotogramas/seg: <span id="lblFps">20</span></label>
+                    <input type="range" id="rngFps" min="1" max="60" value="20">
+                    <label>Ticks por fotograma: <span id="lblBatch">1</span></label>
+                    <input type="range" id="rngBatch" min="1" max="100" value="1">
+                    <div class="checkbox-row">
+                        <input type="checkbox" id="chkTickUndo" checked>
+                        <label for="chkTickUndo" style="margin:0;">Registrar nodos de simulacion en el Arbol</label>
+                    </div>
+                </div>
+
+                <div class="group">
+                    <div class="group-title">Herramienta de Interaccion</div>
+                    <div class="grid-3" style="margin-bottom: 0.45rem;">
+                        <button class="tool-btn active-tool" data-tool="brush">Pincel</button>
+                        <button class="tool-btn" data-tool="fill">Cubeta</button>
+                        <button class="tool-btn" data-tool="line">Linea</button>
+                        <button class="tool-btn" data-tool="rect">Rectangulo</button>
+                        <button class="tool-btn" data-tool="circle">Circulo</button>
+                        <button class="tool-btn" data-tool="eraseNation">Borrar Nacion</button>
+                        <button class="tool-btn" data-tool="dispatch">Tropas</button>
+                        <button class="tool-btn" data-tool="pan">Mover Camara</button>
+                        <button class="tool-btn" data-tool="inspect">Inspeccionar</button>
+                    </div>
+
+                    <div class="checkbox-row" id="shapeFillRow" style="display:none; margin-bottom:0.45rem;">
+                        <input type="checkbox" id="chkShapeFilled" checked>
+                        <label for="chkShapeFilled" style="margin:0;">Forma rellena</label>
+                    </div>
+
+                    <label for="selMaterial">Material / Terreno / Propiedad</label>
+                    <select id="selMaterial" style="margin-bottom: 0.4rem;">
+                        <option value="0">No habitable (N)</option>
+                        <option value="1" selected>Colonizable Normal (H)</option>
+                        <option value="2">Transito Estandar (T)</option>
+                        <option value="4">Celda Objetivo (O)</option>
+                        <option value="6">Fertil / Recurso (R — 2.0x regen)</option>
+                        <option value="7">Fortificada / Bastion (F — 2.0x defensa)</option>
+                        <option value="8">Pantano (S — 0.5x velocidad/cap)</option>
+                        <option value="9">Corriente / Diodo (W — direccion fija)</option>
+                        <option value="10">Multiplicador Fertilidad Individual (uint8)</option>
+                        <option value="3">Sembrar Equipo Activo</option>
+                        <option value="5">Limpiar ocupacion (conservar terreno)</option>
+                    </select>
+
+                    <div id="flowDirBox" style="display:none; margin-bottom:0.4rem;">
+                        <label for="selFlowDir">Direccion de la Corriente / Diodo (W)</label>
+                        <select id="selFlowDir">
+                            <option value="0">Arriba</option>
+                            <option value="1">Izquierda</option>
+                            <option value="2">Abajo</option>
+                            <option value="3" selected>Derecha</option>
+                        </select>
+                    </div>
+
+                    <div id="growthBrushBox" style="display:none; margin-bottom:0.4rem;">
+                        <label>Multiplicador local: <strong id="lblGrowthBrush">1.00x (64)</strong></label>
+                        <input type="range" id="rngGrowthBrush" min="16" max="255" value="64">
+                    </div>
+
+                    <label for="selActiveTeamBrush">Equipo activo para sembrar</label>
+                    <select id="selActiveTeamBrush"></select>
+
+                    <div id="dispatchControls" style="display:none; margin-top:0.5rem;">
+                        <div class="grid-2">
+                            <div>
+                                <label>Direccion envio</label>
+                                <select id="selDispatchDir">
+                                    <option value="0">Arriba</option>
+                                    <option value="1">Izquierda</option>
+                                    <option value="2">Abajo</option>
+                                    <option value="3" selected>Derecha</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Proporcion (alfa)</label>
+                                <select id="selDispatchFrac">
+                                    <option value="0.25">25%</option>
+                                    <option value="0.50" selected>50%</option>
+                                    <option value="0.75">75%</option>
+                                    <option value="1.00">100%</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="group">
+                    <div class="group-title">Nuevo Mapa Vacio (Todo en N)</div>
+                    <div class="grid-2" style="margin-bottom: 0.4rem;">
+                        <div>
+                            <label>Ancho (X)</label>
+                            <input type="number" id="inpNewW" min="5" max="500" value="200">
+                        </div>
+                        <div>
+                            <label>Alto (Y)</label>
+                            <input type="number" id="inpNewH" min="5" max="500" value="200">
+                        </div>
+                    </div>
+                    <button id="btnCreateBlank" style="width:100%;">Generar Plantilla Vacia (N)</button>
+                </div>
+
+                <div class="group">
+                    <div class="group-title">Escenarios y Archivos (.caworld.json)</div>
+                    <select id="selScenario" style="margin-bottom: 0.4rem;"></select>
+                    <div class="grid-2" style="margin-bottom: 0.45rem;">
+                        <button id="btnLoadScenario">Cargar</button>
+                        <button id="btnDeleteScenario" class="danger">Eliminar Guardado</button>
+                    </div>
+                    <div class="row">
+                        <input type="text" id="inpSaveName" placeholder="Nombre del escenario...">
+                        <button id="btnSaveLocal">Guardar</button>
+                    </div>
+                    <div class="grid-2">
+                        <button id="btnExportFile">Exportar Archivo</button>
+                        <button id="btnImportFile">Importar Archivo</button>
+                        <input type="file" id="fileImportInput" accept=".json,.caworld" style="display:none;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- PESTANA 2: EQUIPOS -->
+            <div id="tabTeams" class="tab-content">
+                <div class="group">
+                    <div class="group-title">Gestion de Equipos</div>
+                    <div class="row">
+                        <select id="selConfigTeam"></select>
+                        <input type="color" id="inpTeamColor" value="#2563eb" title="Color del equipo">
+                    </div>
+                    <div class="grid-2">
+                        <button id="btnAddTeam" class="primary">Anadir Equipo</button>
+                        <button id="btnDeleteTeam" class="danger">Eliminar Equipo</button>
+                    </div>
+                </div>
+
+                <div class="group">
+                    <div class="group-title">Doctrina de Expansion y Punto Fijo</div>
+                    <label>Orden de prioridad ortogonal</label>
+                    <div class="grid-4" style="margin-bottom:0.45rem;">
+                        <select id="cfgDir0"></select>
+                        <select id="cfgDir1"></select>
+                        <select id="cfgDir2"></select>
+                        <select id="cfgDir3"></select>
+                    </div>
+
+                    <div class="grid-2" style="margin-bottom:0.4rem;">
+                        <div>
+                            <label>Umbral conquista (tau)</label>
+                            <input type="number" id="cfgTau" step="0.025" min="0" value="0.125">
+                        </div>
+                        <div>
+                            <label>Periodo emision T (-1=1x)</label>
+                            <input type="number" id="cfgPeriod" step="1" min="-1" value="8">
+                        </div>
+                    </div>
+
+                    <div class="grid-2" style="margin-bottom:0.4rem;">
+                        <div>
+                            <label>Limite de area (0=Sin limite)</label>
+                            <input type="number" id="cfgMaxArea" step="1" min="0" value="0">
+                        </div>
+                        <div>
+                            <label>Friccion por area (beta)</label>
+                            <input type="number" id="cfgFriction" step="0.002" min="0" value="0.004">
+                        </div>
+                    </div>
+
+                    <div class="grid-2" style="margin-bottom:0.4rem;">
+                        <div>
+                            <label>Regen. tropas/tick</label>
+                            <input type="number" id="cfgRegen" step="0.05" min="0" value="0.25">
+                        </div>
+                        <div>
+                            <label>Capacidad max/celda</label>
+                            <input type="number" id="cfgMaxTroops" step="1" min="1" value="10">
+                        </div>
+                    </div>
+
+                    <div class="checkbox-row">
+                        <input type="checkbox" id="cfgOrganic" checked>
+                        <label for="cfgOrganic" style="margin:0;">Expansion organica determinista (biomas + cohesion)</label>
+                    </div>
+                    <div class="checkbox-row" style="margin-bottom:0.55rem;">
+                        <input type="checkbox" id="cfgMultiDir">
+                        <label for="cfgMultiDir" style="margin:0;">Difusion multidireccional en T (compuertas XOR)</label>
+                    </div>
+
+                    <button id="btnApplyTeamConfig" class="primary" style="width:100%;">Aplicar Configuracion al Equipo</button>
+                </div>
+            </div>
+
+            <!-- PESTANA 3: PLANTILLAS -->
+            <div id="tabBlueprints" class="tab-content">
+                <div class="group">
+                    <div class="group-title">Estampar y Rotar (Previsualizacion en Cursor)</div>
+                    <div class="grid-2" style="margin-bottom: 0.45rem;">
+                        <button class="tool-btn" data-tool="stamp">Activar Estampado</button>
+                        <button id="btnRotateBp">Rotar 90° (<span id="lblRotation">0°</span>)</button>
+                    </div>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin:0;">
+                        Mueva el cursor sobre el mapa para previsualizar la estampa. Pulse <strong>R</strong> para rotar.
+                    </p>
+                </div>
+
+                <div class="group">
+                    <div class="group-title">Crear Nueva Plantilla desde el Mapa</div>
+                    <button class="tool-btn" data-tool="capture" style="width:100%; margin-bottom:0.45rem;">
+                        Seleccionar Region en el Tablero
+                    </button>
+                    <div class="row">
+                        <input type="text" id="inpBpName" placeholder="Nombre de nueva plantilla...">
+                        <button id="btnSaveCapturedBp" class="primary">Guardar</button>
+                    </div>
+                    <div id="lblCaptureStatus" style="font-size:0.74rem; color:var(--text-muted);">
+                        Arrastre un rectangulo sobre el mapa con la herramienta de seleccion.
+                    </div>
+                </div>
+
+                <div class="group">
+                    <div class="group-title">Catalogo de Plantillas</div>
+                    <div id="blueprintList" class="blueprint-list"></div>
+                </div>
+            </div>
+
+            <!-- PESTANA 4: TELEMETRIA -->
+            <div id="tabTelemetry" class="tab-content">
+                <div class="group">
+                    <div class="group-title">Visualizacion Topologica</div>
+                    <div class="checkbox-row">
+                        <input type="checkbox" id="chkGraphOverlay">
+                        <label for="chkGraphOverlay" style="margin:0;">Mostrar Grafo Territorial (Centroides y Fronteras)</label>
+                    </div>
+                    <div class="checkbox-row">
+                        <input type="checkbox" id="chkShowGrid" checked>
+                        <label for="chkShowGrid" style="margin:0;">Mostrar rejilla y detalles LOD con zoom alto</label>
+                    </div>
+                </div>
+
+                <div class="group">
+                    <div class="group-title">Historial de Area por Equipo</div>
+                    <canvas id="telemetryCanvas" width="300" height="135"></canvas>
+                </div>
+
+                <div class="group">
+                    <div class="group-title">Resumen en Tiempo Real</div>
+                    <table class="team-stats-table">
+                        <thead>
+                            <tr>
+                                <th>Equipo</th>
+                                <th>Naciones</th>
+                                <th>Area</th>
+                                <th>Tropas</th>
+                            </tr>
+                        </thead>
+                        <tbody id="telemetryTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </aside>
+
+        <section class="viewport">
+            <div class="canvas-stage">
+                <canvas id="simCanvas"></canvas>
+                <div class="minimap-wrapper">
+                    <canvas id="minimapCanvas" width="180" height="135"></canvas>
+                </div>
+            </div>
+
+            <div class="timeline-dock">
+                <div class="timeline-header">
+                    <span><strong>Arbol N-ario de Historial (Linea de Tiempo)</strong> — Haga clic en cualquier nodo para saltar de rama</span>
+                    <span id="lblTreeNodes">Nodos: 1</span>
+                </div>
+                <div class="timeline-scroll">
+                    <canvas id="timelineCanvas" width="900" height="62"></canvas>
+                </div>
+            </div>
+
+            <div class="inspector-bar">
+                <span id="lblInspector">Mueva el cursor sobre el tablero para inspeccionar celdas.</span>
+                <span>Rueda: Zoom | Espacio+Arrastrar: Mover | Ctrl+Z / Ctrl+Y: Deshacer/Rehacer | R: Rotar</span>
+            </div>
+        </section>
+    </main>
+
+    <script src="engine.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
